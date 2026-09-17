@@ -1,0 +1,45 @@
+name: WS03 Private Workload Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      endpoint_url:
+        description: Temporary HTTPS canary endpoint origin
+        required: true
+        type: string
+      session_id:
+        description: Opaque bounded canary session identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  private-canary:
+    runs-on: windows-2025
+    timeout-minutes: 8
+    env:
+      WS03_ENDPOINT_URL: ${{ inputs.endpoint_url }}
+      WS03_SESSION_ID: ${{ inputs.session_id }}
+      WS03_PRIVATE_CLIENT_SHA256: 5b4c75f05856bde4999a9d80f718fda998eaa40b1ff0805b288846b0901a86ff
+    steps:
+      - name: Fetch pinned WS03 private client and run encrypted canary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $client = Join-Path $env:RUNNER_TEMP 'ws03-private-client.py'
+          $rawUrl = "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_SHA/runner_canary/github_windows_private/client.py"
+          Invoke-WebRequest -Uri $rawUrl -OutFile $client
+          $actual = (Get-FileHash $client -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $env:WS03_PRIVATE_CLIENT_SHA256) { throw 'WS03 private client hash mismatch' }
+          python -c "import cryptography,sys; sys.exit(0 if cryptography.__version__ == '50.0.0' else 1)"
+          if ($LASTEXITCODE -ne 0) {
+            python -m pip install --disable-pip-version-check --no-cache-dir "cryptography==50.0.0"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          python $client
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item -LiteralPath $client -Force
