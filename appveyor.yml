@@ -6,16 +6,15 @@ skip_tags: true
 
 branches:
   only:
-      - main
+    - main
 
-      environment:
-        APPVEYOR_CACHE_SKIP_RESTORE: true
-          APPVEYOR_CACHE_SKIP_SAVE: true
+environment:
+  APPVEYOR_CACHE_SKIP_RESTORE: true
+  APPVEYOR_CACHE_SKIP_SAVE: true
 
-          build_script:
-            - ps: |
-                  & pwsh -NoLogo -NoProfile -File .\runner_canary\appveyor_windows\probe.ps1
-                        if ($LASTEXITCODE -ne 0) { throw "WS03 AppVeyor Windows canary rejected with exit code $LASTEXITCODE" }
+build_script:
+  - ps: |
+      & pwsh -NoLogo -NoProfile -File .\runner_canary\appveyor_windows\probe.ps1
+      if ($LASTEXITCODE -ne 0) { throw "WS03 AppVeyor Windows canary rejected with exit code $LASTEXITCODE" }
 
-                        test: off
-                        
+test: off
