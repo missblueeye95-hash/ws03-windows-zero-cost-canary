@@ -26,6 +26,10 @@ public static class Ws03NativeV2 {
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool GetPhysicalCursorPos(out POINT lpPoint);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT Point);
+    [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vKey);
     [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
@@ -78,6 +82,10 @@ public static class Ws03NativeV2 {
         inputs[0].U.mi.dy = ny;
         inputs[0].U.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         return SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
+    }
+
+    public static bool IsLeftButtonDown() {
+        return (GetAsyncKeyState(0x01) & 0x8000) != 0;
     }
 
     public static uint SendLeftButton(bool down) {
@@ -197,6 +205,16 @@ $buttonClickY = $null
 $buttonEnabled = $false
 $buttonOffscreen = $true
 $foregroundWindowRequested = $false
+$targetWindowHandle = $null
+$foregroundWindowHandleBeforeClick = $null
+$foregroundWindowMatchesTargetBeforeClick = $false
+$windowFromPointHandle = $null
+$windowFromPointRootHandle = $null
+$windowFromPointRootMatchesTarget = $false
+$leftButtonDownObserved = $false
+$leftButtonReleasedObserved = $false
+$foregroundWindowHandleAfterClick = $null
+$foregroundWindowMatchesTargetAfterClick = $false
 $physicalCursorReadback = $false
 $physicalCursorX = $null
 $physicalCursorY = $null
@@ -284,6 +302,7 @@ try {
 
             Set-ValuePatternText $inputElement $clickMarker
             Remove-Item -LiteralPath $receiptPath -Force -ErrorAction SilentlyContinue
+            $targetWindowHandle = [long]$procNow.MainWindowHandle
             $foregroundWindowRequested = [bool][Ws03NativeV2]::SetForegroundWindow($procNow.MainWindowHandle)
             $window.SetFocus()
             Start-Sleep -Milliseconds 350
@@ -327,13 +346,28 @@ try {
                     if ($null -ne $cursorElement) {
                         $cursorHitAutomationId = $cursorElement.Current.AutomationId
                         $cursorHitButton = $cursorHitAutomationId -eq 'Ws03PhysicalClick'
+                    $nativeHitPoint = [Ws03NativeV2+POINT]::new()
+                    $nativeHitPoint.X = $physicalCursorX
+                    $nativeHitPoint.Y = $physicalCursorY
+                    $windowFromPoint = [Ws03NativeV2]::WindowFromPoint($nativeHitPoint)
+                    $windowFromPointHandle = [long]$windowFromPoint
+                    $windowFromPointRootHandle = [long][Ws03NativeV2]::GetAncestor($windowFromPoint, 2)
+                    $windowFromPointRootMatchesTarget = $windowFromPointRootHandle -eq $targetWindowHandle
                     }
                 }
 
+                $foregroundWindowHandleBeforeClick = [long][Ws03NativeV2]::GetForegroundWindow()
+                $foregroundWindowMatchesTargetBeforeClick = $foregroundWindowHandleBeforeClick -eq $targetWindowHandle
+
                 if ($mouseMoveEventsSent -eq 1 -and $cursorMoveEffective -and $cursorHitButton) {
                     $mouseButtonDownEventsSent = [int][Ws03NativeV2]::SendLeftButton($true)
+                    $leftButtonDownObserved = [Ws03NativeV2]::IsLeftButtonDown()
                     Start-Sleep -Milliseconds 120
                     $mouseButtonUpEventsSent = [int][Ws03NativeV2]::SendLeftButton($false)
+                    Start-Sleep -Milliseconds 50
+                    $leftButtonReleasedObserved = -not [Ws03NativeV2]::IsLeftButtonDown()
+                    $foregroundWindowHandleAfterClick = [long][Ws03NativeV2]::GetForegroundWindow()
+                    $foregroundWindowMatchesTargetAfterClick = $foregroundWindowHandleAfterClick -eq $targetWindowHandle
                 }
                 $mouseEventsSent = $mouseMoveEventsSent + $mouseButtonDownEventsSent + $mouseButtonUpEventsSent
 
@@ -396,7 +430,7 @@ $physicalDesktopAccepted = (
 
 $result = [ordered]@{
     schema_version = 2
-    probe_revision = 'v2.3-mouse-diagnostic-point-init'
+    probe_revision = 'v2.4-native-mouse-route-diagnostic'
     provider_candidate = 'github_hosted_public_windows_2025'
     observed_at_utc = [DateTime]::UtcNow.ToString('o')
     github_actions = $env:GITHUB_ACTIONS -eq 'true'
@@ -437,6 +471,16 @@ $result = [ordered]@{
     button_click_x = $buttonClickX
     button_click_y = $buttonClickY
     foreground_window_requested = $foregroundWindowRequested
+    target_window_handle = $targetWindowHandle
+    foreground_window_handle_before_click = $foregroundWindowHandleBeforeClick
+    foreground_window_matches_target_before_click = $foregroundWindowMatchesTargetBeforeClick
+    window_from_point_handle = $windowFromPointHandle
+    window_from_point_root_handle = $windowFromPointRootHandle
+    window_from_point_root_matches_target = $windowFromPointRootMatchesTarget
+    left_button_down_observed = $leftButtonDownObserved
+    left_button_released_observed = $leftButtonReleasedObserved
+    foreground_window_handle_after_click = $foregroundWindowHandleAfterClick
+    foreground_window_matches_target_after_click = $foregroundWindowMatchesTargetAfterClick
     physical_cursor_readback = $physicalCursorReadback
     physical_cursor_x = $physicalCursorX
     physical_cursor_y = $physicalCursorY
