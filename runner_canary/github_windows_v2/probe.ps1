@@ -135,12 +135,12 @@ $form.Height = 300
 $form.StartPosition = 'CenterScreen'
 $form.TopMost = $true
 
-$input = New-Object System.Windows.Forms.TextBox
-$input.Name = 'Ws03Input'
-$input.AccessibleName = 'Ws03Input'
-$input.Left = 30
-$input.Top = 35
-$input.Width = 560
+$script:inputBox = New-Object System.Windows.Forms.TextBox
+$script:inputBox.Name = 'Ws03Input'
+$script:inputBox.AccessibleName = 'Ws03Input'
+$script:inputBox.Left = 30
+$script:inputBox.Top = 35
+$script:inputBox.Width = 560
 
 $button = New-Object System.Windows.Forms.Button
 $button.Name = 'Ws03PhysicalClick'
@@ -151,14 +151,14 @@ $button.Top = 90
 $button.Width = 190
 $button.Height = 40
 
-$receipt = New-Object System.Windows.Forms.TextBox
-$receipt.Name = 'Ws03Receipt'
-$receipt.AccessibleName = 'Ws03Receipt'
-$receipt.Left = 30
-$receipt.Top = 160
-$receipt.Width = 560
-$receipt.ReadOnly = $true
-$receipt.Text = 'EMPTY'
+$script:receiptBox = New-Object System.Windows.Forms.TextBox
+$script:receiptBox.Name = 'Ws03Receipt'
+$script:receiptBox.AccessibleName = 'Ws03Receipt'
+$script:receiptBox.Left = 30
+$script:receiptBox.Top = 160
+$script:receiptBox.Width = 560
+$script:receiptBox.ReadOnly = $true
+$script:receiptBox.Text = 'EMPTY'
 
 function Write-Ws03MouseEventTrace([string]$EventName) {
     [System.IO.File]::AppendAllText($env:WS03_V2_TRACE_PATH, $EventName + [Environment]::NewLine)
@@ -169,14 +169,20 @@ $button.Add_MouseDown({ Write-Ws03MouseEventTrace 'BUTTON_MOUSEDOWN' })
 $button.Add_MouseUp({ Write-Ws03MouseEventTrace 'BUTTON_MOUSEUP' })
 $button.Add_Click({
     Write-Ws03MouseEventTrace 'BUTTON_CLICK'
-    $script:clickCount++
-    $proof = $input.Text + '|' + $script:clickCount
-    $receipt.Text = $proof
-    [System.IO.File]::WriteAllText($env:WS03_V2_RECEIPT_PATH, $proof)
+    try {
+        $script:clickCount++
+        $proof = $script:inputBox.Text + '|' + $script:clickCount
+        $script:receiptBox.Text = $proof
+        [System.IO.File]::WriteAllText($env:WS03_V2_RECEIPT_PATH, $proof)
+        Write-Ws03MouseEventTrace 'BUTTON_RECEIPT_WRITTEN'
+    } catch {
+        $safeMessage = [string]$_.Exception.Message -replace '[\r\n]+', ' '
+        Write-Ws03MouseEventTrace ('BUTTON_HANDLER_ERROR|' + $_.Exception.GetType().Name + '|' + $safeMessage)
+    }
 })
 
-$form.Controls.AddRange(@($input, $button, $receipt))
-$form.Add_Shown({ $input.Focus() })
+$form.Controls.AddRange(@($script:inputBox, $button, $script:receiptBox))
+$form.Add_Shown({ $script:inputBox.Focus() })
 [System.Windows.Forms.Application]::Run($form)
 '@
 Set-Content -LiteralPath $uiScriptPath -Value $uiScript -Encoding UTF8
@@ -207,6 +213,7 @@ $mouseButtonDownEventsSent = 0
 $mouseButtonUpEventsSent = 0
 $mouseEffectiveUiReceipt = $false
 $mouseEffectiveFileReceipt = $false
+$clickMarkerArmed = $false
 $buttonCenterX = $null
 $buttonCenterY = $null
 $buttonClickablePointFound = $false
@@ -315,6 +322,7 @@ try {
             $keyboardEffective = (Get-ValuePatternText $inputElement) -eq $keyMarker
 
             Set-ValuePatternText $inputElement $clickMarker
+            $clickMarkerArmed = (Get-ValuePatternText $inputElement) -eq $clickMarker
             Remove-Item -LiteralPath $receiptPath -Force -ErrorAction SilentlyContinue
             $targetWindowHandle = [long]$procNow.MainWindowHandle
             $foregroundWindowRequested = [bool][Ws03NativeV2]::SetForegroundWindow($procNow.MainWindowHandle)
@@ -421,7 +429,7 @@ try {
             try { $uiProcess.Kill($true) } catch { }
         }
     }
-    Remove-Item -LiteralPath $uiScriptPath,$receiptPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $uiScriptPath,$receiptPath,$tracePath -Force -ErrorAction SilentlyContinue
 }
 
 $sessionId = [System.Diagnostics.Process]::GetCurrentProcess().SessionId
@@ -438,18 +446,27 @@ $physicalDesktopAccepted = (
     $screenshotNonUniform -and
     $keyboardEventsSent -eq $keyboardEventsExpected -and
     $keyboardEffective -and
+    $clickMarkerArmed -and
     $buttonClickablePointFound -and
     $physicalCursorReadback -and
     $cursorMoveEffective -and
     $cursorHitButton -and
+    $foregroundWindowMatchesTargetBeforeClick -and
+    $windowFromPointRootMatchesTarget -and
+    $leftButtonDownObserved -and
+    $leftButtonReleasedObserved -and
+    $foregroundWindowMatchesTargetAfterClick -and
     $mouseEventsSent -eq $mouseEventsExpected -and
+    $buttonMouseDownEventObserved -and
+    $buttonClickEventObserved -and
+    $buttonMouseUpEventObserved -and
     $mouseEffectiveUiReceipt -and
     $mouseEffectiveFileReceipt
 )
 
 $result = [ordered]@{
     schema_version = 2
-    probe_revision = 'v2.5-winforms-mouse-event-trace'
+    probe_revision = 'v2.6-click-receipt-scope-fix'
     provider_candidate = 'github_hosted_public_windows_2025'
     observed_at_utc = [DateTime]::UtcNow.ToString('o')
     github_actions = $env:GITHUB_ACTIONS -eq 'true'
@@ -482,6 +499,7 @@ $result = [ordered]@{
     mouse_button_up_events_sent = $mouseButtonUpEventsSent
     mouse_click_ui_receipt_effective = $mouseEffectiveUiReceipt
     mouse_click_file_receipt_effective = $mouseEffectiveFileReceipt
+    click_marker_armed = $clickMarkerArmed
     button_enabled = $buttonEnabled
     button_offscreen = $buttonOffscreen
     button_center_x = $buttonCenterX
