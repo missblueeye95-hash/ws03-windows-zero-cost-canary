@@ -13,6 +13,7 @@ if ($env:RUNNER_OS -ne 'Windows') {
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 
@@ -23,8 +24,11 @@ public static class Ws03NativeV2 {
     [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
     [DllImport("user32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool CloseDesktop(IntPtr hDesktop);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool GetPhysicalCursorPos(out POINT lpPoint);
     [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
     [StructLayout(LayoutKind.Sequential)] public struct INPUT { public uint type; public InputUnion U; }
     [StructLayout(LayoutKind.Explicit)] public struct InputUnion {
         [FieldOffset(0)] public MOUSEINPUT mi;
@@ -61,29 +65,34 @@ public static class Ws03NativeV2 {
         return (int)Math.Max(0, Math.Min(65535, Math.Round(scaled)));
     }
 
-    public static uint SendAbsoluteLeftClick(int x, int y, int virtualLeft, int virtualTop, int virtualWidth, int virtualHeight) {
+    public static uint SendAbsoluteMouseMove(int x, int y, int virtualLeft, int virtualTop, int virtualWidth, int virtualHeight) {
         const uint INPUT_MOUSE = 0;
         const uint MOUSEEVENTF_MOVE = 0x0001;
-        const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-        const uint MOUSEEVENTF_LEFTUP = 0x0004;
         const uint MOUSEEVENTF_VIRTUALDESK = 0x4000;
         const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
         int nx = NormalizeAbsolute(x, virtualLeft, virtualWidth);
         int ny = NormalizeAbsolute(y, virtualTop, virtualHeight);
-        INPUT[] inputs = new INPUT[3];
+        INPUT[] inputs = new INPUT[1];
         inputs[0].type = INPUT_MOUSE;
         inputs[0].U.mi.dx = nx;
         inputs[0].U.mi.dy = ny;
         inputs[0].U.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-        inputs[1].type = INPUT_MOUSE;
-        inputs[1].U.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-        inputs[2].type = INPUT_MOUSE;
-        inputs[2].U.mi.dwFlags = MOUSEEVENTF_LEFTUP;
-        return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+        return SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
+    }
+
+    public static uint SendLeftButton(bool down) {
+        const uint INPUT_MOUSE = 0;
+        const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+        const uint MOUSEEVENTF_LEFTUP = 0x0004;
+        INPUT[] inputs = new INPUT[1];
+        inputs[0].type = INPUT_MOUSE;
+        inputs[0].U.mi.dwFlags = down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+        return SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
     }
 }
 "@
 Add-Type -TypeDefinition $nativeSource -Language CSharp
+$dpiAwarenessRequestReturned = [bool][Ws03NativeV2]::SetProcessDPIAware()
 
 function Get-ValuePatternText([System.Windows.Automation.AutomationElement]$Element) {
     $available = [bool]$Element.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsValuePatternAvailableProperty)
@@ -175,10 +184,25 @@ $keyboardEventsSent = 0
 $keyboardEffective = $false
 $mouseEventsExpected = 3
 $mouseEventsSent = 0
+$mouseMoveEventsSent = 0
+$mouseButtonDownEventsSent = 0
+$mouseButtonUpEventsSent = 0
 $mouseEffectiveUiReceipt = $false
 $mouseEffectiveFileReceipt = $false
 $buttonCenterX = $null
 $buttonCenterY = $null
+$buttonClickablePointFound = $false
+$buttonClickX = $null
+$buttonClickY = $null
+$buttonEnabled = $false
+$buttonOffscreen = $true
+$foregroundWindowRequested = $false
+$physicalCursorReadback = $false
+$physicalCursorX = $null
+$physicalCursorY = $null
+$cursorMoveEffective = $false
+$cursorHitAutomationId = $null
+$cursorHitButton = $false
 $probeErrorClass = $null
 $probeErrorStage = $null
 
@@ -258,15 +282,59 @@ try {
 
             Set-ValuePatternText $inputElement $clickMarker
             Remove-Item -LiteralPath $receiptPath -Force -ErrorAction SilentlyContinue
-            [void][Ws03NativeV2]::SetForegroundWindow($procNow.MainWindowHandle)
+            $foregroundWindowRequested = [bool][Ws03NativeV2]::SetForegroundWindow($procNow.MainWindowHandle)
             $window.SetFocus()
             Start-Sleep -Milliseconds 350
 
+            $buttonEnabled = [bool]$buttonElement.Current.IsEnabled
+            $buttonOffscreen = [bool]$buttonElement.Current.IsOffscreen
             $rect = $buttonElement.Current.BoundingRectangle
             if (-not $rect.IsEmpty -and $rect.Width -ge 5 -and $rect.Height -ge 5) {
                 $buttonCenterX = [int][Math]::Round($rect.Left + ($rect.Width / 2.0))
                 $buttonCenterY = [int][Math]::Round($rect.Top + ($rect.Height / 2.0))
-                $mouseEventsSent = [int][Ws03NativeV2]::SendAbsoluteLeftClick($buttonCenterX, $buttonCenterY, $screen.Left, $screen.Top, $screen.Width, $screen.Height)
+            }
+
+            $clickPoint = [System.Windows.Point]::new()
+            $buttonClickablePointFound = [bool]$buttonElement.TryGetClickablePoint([ref]$clickPoint)
+            if ($buttonClickablePointFound -and $buttonEnabled -and -not $buttonOffscreen) {
+                $buttonClickX = [int][Math]::Round($clickPoint.X)
+                $buttonClickY = [int][Math]::Round($clickPoint.Y)
+
+                $mouseMoveEventsSent = [int][Ws03NativeV2]::SendAbsoluteMouseMove(
+                    $buttonClickX,
+                    $buttonClickY,
+                    $screen.Left,
+                    $screen.Top,
+                    $screen.Width,
+                    $screen.Height
+                )
+                Start-Sleep -Milliseconds 500
+
+                $cursorPoint = [Ws03NativeV2+POINT]::new()
+                $physicalCursorReadback = [bool][Ws03NativeV2]::GetPhysicalCursorPos([ref]$cursorPoint)
+                if ($physicalCursorReadback) {
+                    $physicalCursorX = $cursorPoint.X
+                    $physicalCursorY = $cursorPoint.Y
+                    $cursorMoveEffective = (
+                        [Math]::Abs($physicalCursorX - $buttonClickX) -le 2 -and
+                        [Math]::Abs($physicalCursorY - $buttonClickY) -le 2
+                    )
+                    $cursorElement = [System.Windows.Automation.AutomationElement]::FromPoint(
+                        [System.Windows.Point]::new([double]$physicalCursorX, [double]$physicalCursorY)
+                    )
+                    if ($null -ne $cursorElement) {
+                        $cursorHitAutomationId = $cursorElement.Current.AutomationId
+                        $cursorHitButton = $cursorHitAutomationId -eq 'Ws03PhysicalClick'
+                    }
+                }
+
+                if ($mouseMoveEventsSent -eq 1 -and $cursorMoveEffective -and $cursorHitButton) {
+                    $mouseButtonDownEventsSent = [int][Ws03NativeV2]::SendLeftButton($true)
+                    Start-Sleep -Milliseconds 120
+                    $mouseButtonUpEventsSent = [int][Ws03NativeV2]::SendLeftButton($false)
+                }
+                $mouseEventsSent = $mouseMoveEventsSent + $mouseButtonDownEventsSent + $mouseButtonUpEventsSent
+
                 $clickDeadline = [DateTime]::UtcNow.AddSeconds(3)
                 do {
                     Start-Sleep -Milliseconds 100
@@ -312,6 +380,10 @@ $physicalDesktopAccepted = (
     $screenshotNonUniform -and
     $keyboardEventsSent -eq $keyboardEventsExpected -and
     $keyboardEffective -and
+    $buttonClickablePointFound -and
+    $physicalCursorReadback -and
+    $cursorMoveEffective -and
+    $cursorHitButton -and
     $mouseEventsSent -eq $mouseEventsExpected -and
     $mouseEffectiveUiReceipt -and
     $mouseEffectiveFileReceipt
@@ -319,6 +391,7 @@ $physicalDesktopAccepted = (
 
 $result = [ordered]@{
     schema_version = 2
+    probe_revision = 'v2.1-mouse-diagnostic'
     provider_candidate = 'github_hosted_public_windows_2025'
     observed_at_utc = [DateTime]::UtcNow.ToString('o')
     github_actions = $env:GITHUB_ACTIONS -eq 'true'
@@ -343,12 +416,28 @@ $result = [ordered]@{
     keyboard_sendinput_events_expected = $keyboardEventsExpected
     keyboard_sendinput_events_sent = $keyboardEventsSent
     keyboard_sendinput_effective = $keyboardEffective
+    dpi_awareness_request_returned = $dpiAwarenessRequestReturned
     mouse_sendinput_events_expected = $mouseEventsExpected
     mouse_sendinput_events_sent = $mouseEventsSent
+    mouse_move_events_sent = $mouseMoveEventsSent
+    mouse_button_down_events_sent = $mouseButtonDownEventsSent
+    mouse_button_up_events_sent = $mouseButtonUpEventsSent
     mouse_click_ui_receipt_effective = $mouseEffectiveUiReceipt
     mouse_click_file_receipt_effective = $mouseEffectiveFileReceipt
+    button_enabled = $buttonEnabled
+    button_offscreen = $buttonOffscreen
     button_center_x = $buttonCenterX
     button_center_y = $buttonCenterY
+    button_clickable_point_found = $buttonClickablePointFound
+    button_click_x = $buttonClickX
+    button_click_y = $buttonClickY
+    foreground_window_requested = $foregroundWindowRequested
+    physical_cursor_readback = $physicalCursorReadback
+    physical_cursor_x = $physicalCursorX
+    physical_cursor_y = $physicalCursorY
+    cursor_move_effective = $cursorMoveEffective
+    cursor_hit_automation_id = $cursorHitAutomationId
+    cursor_hit_button = $cursorHitButton
     physical_desktop_accepted = $physicalDesktopAccepted
     probe_error_class = $probeErrorClass
     probe_error_stage = $probeErrorStage
