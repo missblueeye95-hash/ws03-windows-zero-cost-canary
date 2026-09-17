@@ -1,8 +1,8 @@
 {
-      "files": {
-              ".github/workflows/ws03-windows-zero-cost-canary.yml": "aa6dc76309e9c4068b70a23e2532c6374c253ae88aa9f95245f3be97fcfb8a33",
-              "runner_canary/github_windows/probe.ps1": "1363d54515eeed7004a4e7a31fb4465324fe99fd3725bf4347c5093763cdea7f"
-      },
-      "purpose": "ws03-public-windows-zero-cost-canary",
-      "schema_version": 1
+  "files": {
+    ".github/workflows/ws03-windows-zero-cost-canary.yml": "aa6dc76309e9c4068b70a23e2532c6374c253ae88aa9f95245f3be97fcfb8a33",
+    "runner_canary/github_windows/probe.ps1": "1363d54515eeed7004a4e7a31fb4465324fe99fd3725bf4347c5093763cdea7f"
+  },
+  "purpose": "ws03-public-windows-zero-cost-canary",
+  "schema_version": 1
 }
