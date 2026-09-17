@@ -348,7 +348,7 @@ try {
     }
 } catch {
     $probeErrorClass = $_.Exception.GetType().Name
-    $probeErrorStage = $_.InvocationInfo.MyCommand.Name
+    $probeErrorStage = 'caught: ' + [string]$_.Exception.Message
 } finally {
     if ($null -ne $uiProcess) {
         try {
