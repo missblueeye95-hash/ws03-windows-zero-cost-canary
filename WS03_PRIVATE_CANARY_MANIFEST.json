@@ -1,0 +1,10 @@
+{
+  "audience": "ws03-private-control-plane",
+  "expected_subject": "repo:missblueeye95-hash@330202591/ws03-windows-zero-cost-canary@1373813048:ref:refs/heads/main",
+  "files": {
+    ".github/workflows/ws03-private-workload.yml": "0f148b6368f1b63e40246ea0e2a76f6be41d99e6c20f1c2b04ce9f0056cf505f",
+    "runner_canary/github_windows_private/client.py": "5b4c75f05856bde4999a9d80f718fda998eaa40b1ff0805b288846b0901a86ff"
+  },
+  "purpose": "ws03-private-live-canary-public-bundle",
+  "schema_version": 1
+}
