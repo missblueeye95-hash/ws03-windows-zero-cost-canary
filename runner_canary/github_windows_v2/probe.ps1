@@ -123,6 +123,7 @@ $clickMarker = 'WS03_CLICK_' + [Guid]::NewGuid().ToString('N')
 $expectedReceipt = $clickMarker + '|1'
 $uiScriptPath = Join-Path $env:RUNNER_TEMP ('ws03-v2-ui-' + $probeId + '.ps1')
 $receiptPath = Join-Path $env:RUNNER_TEMP ('ws03-v2-receipt-' + $probeId + '.txt')
+$tracePath = Join-Path $env:RUNNER_TEMP ('ws03-v2-mouse-events-' + $probeId + '.txt')
 
 $uiScript = @'
 Add-Type -AssemblyName System.Windows.Forms
@@ -159,8 +160,15 @@ $receipt.Width = 560
 $receipt.ReadOnly = $true
 $receipt.Text = 'EMPTY'
 
+function Write-Ws03MouseEventTrace([string]$EventName) {
+    [System.IO.File]::AppendAllText($env:WS03_V2_TRACE_PATH, $EventName + [Environment]::NewLine)
+}
+
 $script:clickCount = 0
+$button.Add_MouseDown({ Write-Ws03MouseEventTrace 'BUTTON_MOUSEDOWN' })
+$button.Add_MouseUp({ Write-Ws03MouseEventTrace 'BUTTON_MOUSEUP' })
 $button.Add_Click({
+    Write-Ws03MouseEventTrace 'BUTTON_CLICK'
     $script:clickCount++
     $proof = $input.Text + '|' + $script:clickCount
     $receipt.Text = $proof
@@ -175,6 +183,8 @@ Set-Content -LiteralPath $uiScriptPath -Value $uiScript -Encoding UTF8
 
 $env:WS03_V2_TITLE = $probeTitle
 $env:WS03_V2_RECEIPT_PATH = $receiptPath
+$env:WS03_V2_TRACE_PATH = $tracePath
+Remove-Item -LiteralPath $tracePath -Force -ErrorAction SilentlyContinue
 $uiProcess = $null
 $inputDesktopOpened = $false
 $uiaWindowFound = $false
@@ -215,6 +225,10 @@ $leftButtonDownObserved = $false
 $leftButtonReleasedObserved = $false
 $foregroundWindowHandleAfterClick = $null
 $foregroundWindowMatchesTargetAfterClick = $false
+$mouseEventTrace = @()
+$buttonMouseDownEventObserved = $false
+$buttonMouseUpEventObserved = $false
+$buttonClickEventObserved = $false
 $physicalCursorReadback = $false
 $physicalCursorX = $null
 $physicalCursorY = $null
@@ -379,6 +393,11 @@ try {
                     $mouseEffectiveUiReceipt = $uiReceipt -eq $expectedReceipt
                     $mouseEffectiveFileReceipt = $fileReceipt -eq $expectedReceipt
                 } while ((-not ($mouseEffectiveUiReceipt -and $mouseEffectiveFileReceipt)) -and [DateTime]::UtcNow -lt $clickDeadline)
+
+                $mouseEventTrace = if (Test-Path $tracePath) { @(Get-Content -LiteralPath $tracePath) } else { @() }
+                $buttonMouseDownEventObserved = $mouseEventTrace -contains 'BUTTON_MOUSEDOWN'
+                $buttonMouseUpEventObserved = $mouseEventTrace -contains 'BUTTON_MOUSEUP'
+                $buttonClickEventObserved = $mouseEventTrace -contains 'BUTTON_CLICK'
             }
         }
     }
@@ -430,7 +449,7 @@ $physicalDesktopAccepted = (
 
 $result = [ordered]@{
     schema_version = 2
-    probe_revision = 'v2.4-native-mouse-route-diagnostic'
+    probe_revision = 'v2.5-winforms-mouse-event-trace'
     provider_candidate = 'github_hosted_public_windows_2025'
     observed_at_utc = [DateTime]::UtcNow.ToString('o')
     github_actions = $env:GITHUB_ACTIONS -eq 'true'
@@ -481,6 +500,10 @@ $result = [ordered]@{
     left_button_released_observed = $leftButtonReleasedObserved
     foreground_window_handle_after_click = $foregroundWindowHandleAfterClick
     foreground_window_matches_target_after_click = $foregroundWindowMatchesTargetAfterClick
+    mouse_event_trace = $mouseEventTrace
+    button_mousedown_event_observed = $buttonMouseDownEventObserved
+    button_mouseup_event_observed = $buttonMouseUpEventObserved
+    button_click_event_observed = $buttonClickEventObserved
     physical_cursor_readback = $physicalCursorReadback
     physical_cursor_x = $physicalCursorX
     physical_cursor_y = $physicalCursorY
