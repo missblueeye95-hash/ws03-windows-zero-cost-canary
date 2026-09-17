@@ -1,0 +1,8 @@
+{
+    "files": {
+          "appveyor.yml": "677401f0d3eb22d0b88335953fd2d80d676ccacea26319d48e74884ef8b3996a",
+          "runner_canary/appveyor_windows/probe.ps1": "10dc6e7d96384c51ff08011ea4ba2b21434dd467318ba486f51ec7f8dd80c5aa"
+    },
+    "purpose": "ws03-public-appveyor-windows-zero-cost-canary",
+    "schema_version": 1
+}
