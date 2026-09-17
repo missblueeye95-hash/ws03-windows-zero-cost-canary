@@ -37,7 +37,7 @@ jobs:
       WS03_ENDPOINT_URL: ${{ inputs.endpoint_url }}
       WS03_SESSION_ID: ${{ inputs.session_id }}
       WS03_TTL_SECONDS: ${{ inputs.ttl_seconds }}
-      WS03_WORKER_SHA256: 7efc3f74253c2bc69c5fa7f94cc0ac39c99951fb3c0135c54bfa25c4fbb97fdb
+      WS03_WORKER_SHA256: d4446beac0b366efb460cc36ac02926991526e0ed8f097f68f2f8e22771ba2ec
       WS03_REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
     steps:
       - name: Verify public bundle and run encrypted Windows session
