@@ -1,0 +1,65 @@
+name: ws03-windows-gui-v2-canary
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ws03-windows-gui-v2-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    runs-on: windows-2025
+    timeout-minutes: 8
+    steps:
+      - name: Checkout public canary only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Runner provenance and local sentinel
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'ws03-v2-job-sentinel.txt') -Value $env:GITHUB_RUN_ID -Encoding ascii
+          $os = Get-CimInstance Win32_OperatingSystem
+          [ordered]@{
+            event = 'runner_provenance'
+            os_caption = $os.Caption
+            os_version = $os.Version
+            os_build = $os.BuildNumber
+            ps_version = $PSVersionTable.PSVersion.ToString()
+            runner_os = $env:RUNNER_OS
+            runner_arch = $env:RUNNER_ARCH
+            image_os = $env:ImageOS
+            image_version = $env:ImageVersion
+          } | ConvertTo-Json -Compress
+
+      - name: Strong Windows GUI v2 probe
+        shell: pwsh
+        run: |
+          & pwsh -NoLogo -NoProfile -File .\runner_canary\github_windows_v2\probe.ps1
+          if ($LASTEXITCODE -ne 0) { throw "WS03 GitHub Windows v2 canary rejected with exit code $LASTEXITCODE" }
+
+  fresh-vm-proof:
+    needs: canary
+    if: always()
+    runs-on: windows-2025
+    timeout-minutes: 3
+    steps:
+      - name: Require fresh job-local VM filesystem
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sentinel = Join-Path $env:RUNNER_TEMP 'ws03-v2-job-sentinel.txt'
+          if (Test-Path -LiteralPath $sentinel) {
+            throw 'WS03 freshness proof failed: previous-job sentinel is visible.'
+          }
+          'WS03_FRESH_VM=PASS'
