@@ -1,0 +1,10 @@
+{
+  "bundle_schema": 1,
+  "candidate": "ws03-github-windows-gui-v2",
+  "files": {
+    ".github/workflows/ws03-windows-gui-v2.yml": "2eb244de92e5d049d8eb6fd30c4aa0ca92d8cb1c173aa3d9410f8c01db7a8e34",
+    "README.md": "824f286b4602b8c93a44e5f0680954b82d39e78e50fc6a6f1f3bcf0e553616df",
+    "WS03_PUBLIC_CANARY_V2_MANIFEST.json": "5e7c53882eacbe0d0ff73e3a4b10470f2fda91eb82f3c4e60c0a5189481e1bd3",
+    "runner_canary/github_windows_v2/probe.ps1": "7646a4b94abd884104c9ede9f65013f1b9714c4912f59e25102901bb092532ae"
+  }
+}

@@ -10,7 +10,7 @@
   "files": {
     ".github/workflows/ws03-windows-gui-v2.yml": "2eb244de92e5d049d8eb6fd30c4aa0ca92d8cb1c173aa3d9410f8c01db7a8e34",
     "README.md": "824f286b4602b8c93a44e5f0680954b82d39e78e50fc6a6f1f3bcf0e553616df",
-    "runner_canary/github_windows_v2/probe.ps1": "893f7f6d2de0249ef20bf7bd1b07a4c6938332bf03e2e1eab16b24d8b72769b8"
+    "runner_canary/github_windows_v2/probe.ps1": "7646a4b94abd884104c9ede9f65013f1b9714c4912f59e25102901bb092532ae"
   },
   "purpose": "ws03-public-github-windows-gui-v2-canary",
   "schema_version": 2
