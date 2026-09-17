@@ -147,6 +147,54 @@ def _default_executor(argv, timeout_seconds, cwd):
     return int(completed.returncode), completed.stdout.decode("utf-8", "replace")
 
 
+def _utf16_code_units(text):
+    if not isinstance(text, str):
+        raise ValueError("typed text must be text")
+    encoded = text.encode("utf-16-le")
+    return [int.from_bytes(encoded[index : index + 2], "little") for index in range(0, len(encoded), 2)]
+
+
+def _windows_input_types():
+    import ctypes
+    from ctypes import wintypes
+
+    ULONG_PTR = wintypes.WPARAM
+
+    class MOUSEINPUT(ctypes.Structure):
+        _fields_ = [
+            ("dx", wintypes.LONG),
+            ("dy", wintypes.LONG),
+            ("mouseData", wintypes.DWORD),
+            ("dwFlags", wintypes.DWORD),
+            ("time", wintypes.DWORD),
+            ("dwExtraInfo", ULONG_PTR),
+        ]
+
+    class KEYBDINPUT(ctypes.Structure):
+        _fields_ = [
+            ("wVk", wintypes.WORD),
+            ("wScan", wintypes.WORD),
+            ("dwFlags", wintypes.DWORD),
+            ("time", wintypes.DWORD),
+            ("dwExtraInfo", ULONG_PTR),
+        ]
+
+    class HARDWAREINPUT(ctypes.Structure):
+        _fields_ = [
+            ("uMsg", wintypes.DWORD),
+            ("wParamL", wintypes.WORD),
+            ("wParamH", wintypes.WORD),
+        ]
+
+    class INPUT_UNION(ctypes.Union):
+        _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT), ("hi", HARDWAREINPUT)]
+
+    class INPUT(ctypes.Structure):
+        _fields_ = [("type", wintypes.DWORD), ("u", INPUT_UNION)]
+
+    return KEYBDINPUT, INPUT
+
+
 class WindowsComputer:
     def _require_windows(self):
         if os.name != "nt":
@@ -262,40 +310,27 @@ $ms.Dispose()
 
     def type(self, text, delay_ms):
         self._require_windows()
-        if not isinstance(text, str):
-            raise ValueError("typed text must be text")
         import ctypes
         import time
+        from ctypes import wintypes
 
+        KEYBDINPUT, INPUT = _windows_input_types()
         user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.SendInput.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
+        user32.SendInput.restype = wintypes.UINT
         KEYEVENTF_UNICODE = 0x0004
         KEYEVENTF_KEYUP = 0x0002
 
-        class KEYBDINPUT(ctypes.Structure):
-            _fields_ = [
-                ("wVk", ctypes.c_ushort),
-                ("wScan", ctypes.c_ushort),
-                ("dwFlags", ctypes.c_ulong),
-                ("time", ctypes.c_ulong),
-                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
-            ]
-
-        class INPUT_UNION(ctypes.Union):
-            _fields_ = [("ki", KEYBDINPUT)]
-
-        class INPUT(ctypes.Structure):
-            _fields_ = [("type", ctypes.c_ulong), ("u", INPUT_UNION)]
-
-        for ch in text:
-            code = ord(ch)
+        for code in _utf16_code_units(text):
             inputs = (INPUT * 2)()
             inputs[0].type = 1
-            inputs[0].u.ki = KEYBDINPUT(0, code, KEYEVENTF_UNICODE, 0, None)
+            inputs[0].u.ki = KEYBDINPUT(0, code, KEYEVENTF_UNICODE, 0, 0)
             inputs[1].type = 1
-            inputs[1].u.ki = KEYBDINPUT(0, code, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, None)
+            inputs[1].u.ki = KEYBDINPUT(0, code, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, 0)
             sent = user32.SendInput(2, inputs, ctypes.sizeof(INPUT))
             if sent != 2:
-                raise ValueError("SendInput unicode delivery failed")
+                error = ctypes.get_last_error()
+                raise ValueError(f"SendInput unicode delivery failed: winerror={error}")
             if delay_ms:
                 time.sleep(max(0, int(delay_ms)) / 1000.0)
 
