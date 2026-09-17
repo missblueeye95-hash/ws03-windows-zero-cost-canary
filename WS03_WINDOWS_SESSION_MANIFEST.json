@@ -1,0 +1,10 @@
+{
+  "files": {
+    ".github/workflows/ws03-windows-session.yml": "6aa73bda960314d57d30bcf01cdbf7dfa06d9527e9f040aada3def27867a9a80",
+    "runner_canary/github_windows_session_v1/worker.py": "7efc3f74253c2bc69c5fa7f94cc0ac39c99951fb3c0135c54bfa25c4fbb97fdb"
+  },
+  "protocol": "ws03-github-windows-session-v1",
+  "purpose": "ws03-github-windows-encrypted-session-public-bundle",
+  "schema_version": 1,
+  "worker_sha256": "7efc3f74253c2bc69c5fa7f94cc0ac39c99951fb3c0135c54bfa25c4fbb97fdb"
+}
