@@ -1,0 +1,91 @@
+name: WS03 Windows Encrypted Session
+run-name: WS03 ${{ inputs.canonical_sandbox_id }} ${{ inputs.spec_hash }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      canonical_sandbox_id:
+        description: Canonical opaque WS03 sandbox identifier
+        required: true
+        type: string
+      spec_hash:
+        description: SHA-256 of the accepted WS03 compute specification
+        required: true
+        type: string
+      endpoint_url:
+        description: Temporary HTTPS encrypted session endpoint origin
+        required: true
+        type: string
+      session_id:
+        description: Opaque bounded encrypted session identifier
+        required: true
+        type: string
+      ttl_seconds:
+        description: Bounded session lifetime in seconds
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  encrypted-session:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    env:
+      WS03_ENDPOINT_URL: ${{ inputs.endpoint_url }}
+      WS03_SESSION_ID: ${{ inputs.session_id }}
+      WS03_TTL_SECONDS: ${{ inputs.ttl_seconds }}
+      WS03_WORKER_SHA256: 7efc3f74253c2bc69c5fa7f94cc0ac39c99951fb3c0135c54bfa25c4fbb97fdb
+      WS03_REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
+    steps:
+      - name: Verify public bundle and run encrypted Windows session
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+
+          if ($env:WS03_REPOSITORY_VISIBILITY -ne 'public') { throw 'WS03 session requires a public repository' }
+          if ($env:RUNNER_OS -ne 'Windows') { throw 'WS03 session requires Windows' }
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'WS03 session requires a GitHub-hosted runner' }
+          if ($env:GITHUB_REF -ne 'refs/heads/main') { throw 'WS03 session ref mismatch' }
+          $expectedWorkflowRef = "$env:GITHUB_REPOSITORY/.github/workflows/ws03-windows-session.yml@$env:GITHUB_REF"
+          if ($env:GITHUB_WORKFLOW_REF -ne $expectedWorkflowRef) { throw 'WS03 session workflow ref mismatch' }
+          if ('${{ inputs.canonical_sandbox_id }}' -notmatch '^rcs_[0-9a-f]{32}$') { throw 'WS03 canonical sandbox id is invalid' }
+          if ('${{ inputs.spec_hash }}' -notmatch '^[0-9a-f]{64}$') { throw 'WS03 spec hash is invalid' }
+          if ($env:WS03_SESSION_ID -notmatch '^ws03-session-[A-Za-z0-9._:-]{1,128}$') { throw 'WS03 session id is invalid' }
+          $ttl = 0
+          if (-not [int]::TryParse($env:WS03_TTL_SECONDS, [ref]$ttl) -or $ttl -lt 30 -or $ttl -gt 1800) { throw 'WS03 TTL is invalid' }
+          $endpoint = [Uri]$env:WS03_ENDPOINT_URL
+          if ($endpoint.Scheme -ne 'https' -or -not $endpoint.Host -or $endpoint.UserInfo -or $endpoint.Query -or $endpoint.Fragment) { throw 'WS03 endpoint is invalid' }
+
+          $worker = Join-Path $env:RUNNER_TEMP 'ws03-windows-session-worker.py'
+          $manifestPath = Join-Path $env:RUNNER_TEMP 'WS03_WINDOWS_SESSION_MANIFEST.json'
+          $workflowPath = Join-Path $env:RUNNER_TEMP 'ws03-windows-session.yml'
+          $rawBase = "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_SHA"
+          Invoke-WebRequest -Uri "$rawBase/runner_canary/github_windows_session_v1/worker.py" -OutFile $worker
+          Invoke-WebRequest -Uri "$rawBase/WS03_WINDOWS_SESSION_MANIFEST.json" -OutFile $manifestPath
+          Invoke-WebRequest -Uri "$rawBase/.github/workflows/ws03-windows-session.yml" -OutFile $workflowPath
+
+          $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+          if ($manifest.schema_version -ne 1 -or $manifest.purpose -ne 'ws03-github-windows-encrypted-session-public-bundle') { throw 'WS03 public manifest contract mismatch' }
+          $workerHash = (Get-FileHash $worker -Algorithm SHA256).Hash.ToLowerInvariant()
+          $workflowHash = (Get-FileHash $workflowPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($workerHash -ne $env:WS03_WORKER_SHA256) { throw 'WS03 worker hash mismatch' }
+          if ($manifest.files.'runner_canary/github_windows_session_v1/worker.py' -ne $workerHash) { throw 'WS03 manifest worker hash mismatch' }
+          if ($manifest.files.'.github/workflows/ws03-windows-session.yml' -ne $workflowHash) { throw 'WS03 manifest workflow hash mismatch' }
+
+          python -c "import cryptography,sys; sys.exit(0 if cryptography.__version__ == '50.0.0' else 1)"
+          if ($LASTEXITCODE -ne 0) {
+            python -m pip install --disable-pip-version-check --no-cache-dir "cryptography==50.0.0"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          $env:WS03_FRESH_VM_VERIFIED = 'true'
+          $env:WS03_PUBLIC_BUNDLE_VERIFIED = 'true'
+          $env:WS03_ZERO_PAID_FEATURES = 'true'
+          python $worker
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          Remove-Item -LiteralPath $worker,$manifestPath,$workflowPath -Force
