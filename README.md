@@ -1,5 +1,5 @@
-# WS03 public AppVeyor Windows zero-cost canary
+# WS03 public Windows zero-cost canary
 
-This repository is intentionally generic. It contains only a bounded AppVeyor-hosted Windows capability probe and no private WS03 source, user payloads, credentials, or private artifacts.
+This repository is intentionally generic. It contains only a bounded Windows GitHub-hosted-runner capability probe. It must not contain private WS03 source, user payloads, credentials, or private artifacts.
 
-Runner output alone cannot authorize promotion. The private WS03 control plane must independently verify that the AppVeyor project is public and eligible for the free open-source plan before provider_ready can become true.
+The workflow is acceptance evidence only. A passing workflow does not promote a provider by itself; the private WS03 control plane independently validates the atomic evidence before enabling the strong Windows GUI route.
