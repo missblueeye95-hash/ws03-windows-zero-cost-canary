@@ -1,0 +1,47 @@
+name: WS03 Windows zero-cost canary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ws03-windows-zero-cost-canary.yml"
+      - "runner_canary/github_windows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  freshness-seed:
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - name: Write runner-local sentinel
+        shell: pwsh
+        run: |
+          Set-Content -Path C:\ws03-gha-freshness-sentinel.txt -Value "seed-only"
+          if (-not (Test-Path C:\ws03-gha-freshness-sentinel.txt)) { throw "sentinel write failed" }
+
+  windows-probe:
+    needs: freshness-seed
+    runs-on: windows-2025
+    timeout-minutes: 5
+    env:
+      WS03_RUNNER_LABEL: windows-2025
+      WS03_REPO_VISIBILITY: ${{ github.event.repository.visibility }}
+      WS03_STANDARD_RUNNER: "true"
+    steps:
+      - name: Verify separate fresh job filesystem
+        shell: pwsh
+        run: |
+          if (Test-Path C:\ws03-gha-freshness-sentinel.txt) { throw "runner filesystem was unexpectedly reused" }
+          "WS03_FRESH_VM=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Checkout generic canary only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Probe Windows desktop semantics
+        shell: pwsh
+        run: ./runner_canary/github_windows/probe.ps1
