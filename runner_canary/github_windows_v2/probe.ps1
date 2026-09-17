@@ -205,6 +205,8 @@ $cursorHitAutomationId = $null
 $cursorHitButton = $false
 $probeErrorClass = $null
 $probeErrorStage = $null
+$probeErrorFullyQualifiedId = $null
+$probeErrorMessage = $null
 
 try {
     $desktopAccess = 0x0001 -bor 0x0080 -bor 0x0100
@@ -294,7 +296,7 @@ try {
                 $buttonCenterY = [int][Math]::Round($rect.Top + ($rect.Height / 2.0))
             }
 
-            $clickPoint = [System.Windows.Point]::new()
+            $clickPoint = [System.Windows.Point]::new(0.0, 0.0)
             $buttonClickablePointFound = [bool]$buttonElement.TryGetClickablePoint([ref]$clickPoint)
             if ($buttonClickablePointFound -and $buttonEnabled -and -not $buttonOffscreen) {
                 $buttonClickX = [int][Math]::Round($clickPoint.X)
@@ -347,8 +349,11 @@ try {
         }
     }
 } catch {
-    $probeErrorClass = $_.Exception.GetType().Name
-    $probeErrorStage = 'caught: ' + [string]$_.Exception.Message
+    $caught = $_
+    $probeErrorClass = if ($null -ne $caught.Exception) { $caught.Exception.GetType().Name } else { 'UnknownErrorRecord' }
+    $probeErrorFullyQualifiedId = [string]$caught.FullyQualifiedErrorId
+    $probeErrorMessage = if ($null -ne $caught.Exception) { [string]$caught.Exception.Message } else { [string]$caught }
+    $probeErrorStage = if ($null -ne $caught.InvocationInfo) { 'line:' + [string]$caught.InvocationInfo.ScriptLineNumber } else { 'unknown' }
 } finally {
     if ($null -ne $uiProcess) {
         try {
@@ -391,7 +396,7 @@ $physicalDesktopAccepted = (
 
 $result = [ordered]@{
     schema_version = 2
-    probe_revision = 'v2.1-mouse-diagnostic'
+    probe_revision = 'v2.3-mouse-diagnostic-point-init'
     provider_candidate = 'github_hosted_public_windows_2025'
     observed_at_utc = [DateTime]::UtcNow.ToString('o')
     github_actions = $env:GITHUB_ACTIONS -eq 'true'
@@ -441,6 +446,8 @@ $result = [ordered]@{
     physical_desktop_accepted = $physicalDesktopAccepted
     probe_error_class = $probeErrorClass
     probe_error_stage = $probeErrorStage
+    probe_error_fully_qualified_id = $probeErrorFullyQualifiedId
+    probe_error_message = $probeErrorMessage
     uploads = 0
     secrets_consumed = 0
 }
